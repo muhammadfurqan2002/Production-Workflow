@@ -1,10 +1,10 @@
 import { Request, Response } from "express";
 import { loginSchema, registerSchema } from "./auth.schema";
-import prisma from "../../config/db";
-import { comparePassword, hashPassword } from "../../lib/hash";
+import {comparePassword, hashPassword} from "../../lib/hash";
 import jwt from "jsonwebtoken";
-import { sendEmail } from "../../lib/email";
-import { createAccessToken, createRefreshToken } from "../../lib/token";
+import {sendEmail} from "../../lib/email";
+import {createAccessToken, createRefreshToken} from "../../lib/token";
+import prisma from "../../config/db";
 
 
 function getAppUrl() {
@@ -45,7 +45,7 @@ export async function registerHandler(req: Request, res: Response) {
                 expiresIn: "1d"
             });
 
-        const verifyUrl = `${getAppUrl}/auth/verify-email?token=${verificationToken}`;
+        const verifyUrl = `${getAppUrl()}/api/auth/verify-email?token=${verificationToken}`;
 
         await sendEmail(user.email, "Verify your email", `
         <p>Please verify your email using this link: <a href='${verifyUrl}'>Verify email</a></p>
@@ -70,13 +70,13 @@ export async function registerHandler(req: Request, res: Response) {
 
 export async function verifyEmail(req: Request, res: Response) {
     try {
-        const token = req.body.token;
+        const token = req.query.token;
 
         if (!token) {
             return res.status(400).json({ message: "Token is required" });
         }
 
-        const decode=jwt.verify(token,process.env.JWT_ACCESS_TOKEN!) as {
+        const decode=jwt.verify(token as string,process.env.JWT_ACCESS_TOKEN!) as {
             sub:string;
         };
         const user=await prisma.user.findUnique({
@@ -133,9 +133,20 @@ export const loginHandler=async(req:Request,res:Response)=>{
             secure:isProd,
             sameSite:"lax",
             maxAge:60*60*24*7
-        })
-        
-        return res.status(200).json({message:"Login successful",user:{id:user.id,email:user.email,name:user.name,role:user.role,isEmailVerified:user.isEmailVerified},accessToken});
+        });
+
+        return res.status(200).json({
+            message:"Login successful",
+            user:{
+                id:user.id,
+                email:user.email,
+                name:user.name,
+                role:user.role,
+                isEmailVerified:user.isEmailVerified,
+                twoFactorEnabled:user.twoFactorEnabled
+            },
+            accessToken
+        });
         
     }catch(error){
         console.log(error);

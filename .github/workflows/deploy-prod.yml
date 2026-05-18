@@ -1,0 +1,33 @@
+name: Deploy to Production on Push to Main
+
+on:
+    push:
+        branches: [main]
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                node-version: '20'
+            - run: npm ci
+            - run: npm test
+    deploy:
+        needs: test
+        runs-on: ubuntu-latest
+        environment: production
+        steps:
+            - uses: actions/checkout@v4
+            - run: echo "Deploy to production server"
+              env:
+                  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+                  JWT_ACCESS_TOKEN: ${{ secrets.JWT_ACCESS_TOKEN }}
+                  JWT_REFRESH_TOKEN: ${{ secrets.JWT_REFRESH_TOKEN }}
+                  SMTP_HOST: ${{ secrets.SMTP_HOST }}
+                  SMTP_PORT: ${{ secrets.SMTP_PORT }}
+                  SMTP_USER: ${{ secrets.SMTP_USER }}
+                  SMTP_PASS: ${{ secrets.SMTP_PASS }}
+                  SMTP_FROM: ${{ secrets.SMTP_FROM }}
+
