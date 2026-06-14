@@ -1,5 +1,6 @@
 export enum AuthEventType {
   USER_REGISTERED = "user.registered",
+  USER_VERIFICATION_EMAIL = "user.verification.email",
 }
 
 export interface AuthEvent {
@@ -13,4 +14,10 @@ export interface UserRegisteredEvent extends AuthEvent {
   eventType: AuthEventType.USER_REGISTERED;
   userId: number;
   name: string;
+}
+export interface UserVerificationEmailEvent extends AuthEvent {
+  eventType: AuthEventType.USER_VERIFICATION_EMAIL;
+  userId: number;
+  name: string;
+  appUrl: string;
 }

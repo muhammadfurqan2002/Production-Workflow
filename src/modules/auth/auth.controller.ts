@@ -11,6 +11,7 @@ import {
 import prisma from "../../config/db";
 import crypto from "crypto";
 import { generateSecret, generate, verify, generateURI } from "otplib";
+import { AuthEventType, PublishAuthEvent } from "../../kafka";
 
 function getAppUrl() {
   return process.env.APP_URL || `http://localhost:${process.env.PORT}`;
@@ -56,13 +57,14 @@ export async function registerHandler(req: Request, res: Response) {
 
     const verifyUrl = `${getAppUrl()}/api/auth/verify-email?token=${verificationToken}`;
 
-    await sendEmail(
-      user.email,
-      "Verify your email",
-      `
-        <p>Please verify your email using this link: <a href='${verifyUrl}'>Verify email</a></p>
-        `,
-    );
+    PublishAuthEvent({
+      eventType: AuthEventType.USER_VERIFICATION_EMAIL,
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      timestamp: Date.now(),
+      appUrl: verifyUrl,
+    });
 
     return res.status(201).json({
       message: "User registered successfully",
@@ -268,7 +270,7 @@ export async function logoutHandler(req: Request, res: Response) {
       path: "/",
     });
 
-    return res.status(200).json({
+    return res.status(500).json({
       message: "Logout successful",
     });
   }

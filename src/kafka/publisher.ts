@@ -2,14 +2,14 @@ import { getProducer } from "./client";
 import { AuthEvent } from "./events";
 import { randomUUID } from "crypto";
 
-const TOPIC = "auth-events";
+const AUTH_TOPIC = "auth-events";
 
 export async function PublishAuthEvent(event: AuthEvent) {
   try {
     const producer = await getProducer();
     const key = event.userId ? String(event.userId) : event.email;
     await producer.send({
-      topic: TOPIC,
+      topic: AUTH_TOPIC,
       messages: [
         {
           key,
