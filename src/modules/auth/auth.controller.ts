@@ -10,6 +10,8 @@ import {
 } from "../../lib/token";
 import prisma from "../../config/db";
 import crypto from "crypto";
+import { generateSecret, generate, verify, generateURI } from "otplib";
+import { AuthEventType, PublishAuthEvent } from "../../kafka";
 
 function getAppUrl() {
   return process.env.APP_URL || `http://localhost:${process.env.PORT}`;
@@ -55,13 +57,14 @@ export async function registerHandler(req: Request, res: Response) {
 
     const verifyUrl = `${getAppUrl()}/api/auth/verify-email?token=${verificationToken}`;
 
-    await sendEmail(
-      user.email,
-      "Verify your email",
-      `
-        <p>Please verify your email using this link: <a href='${verifyUrl}'>Verify email</a></p>
-        `,
-    );
+    PublishAuthEvent({
+      eventType: AuthEventType.USER_VERIFICATION_EMAIL,
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      timestamp: Date.now(),
+      appUrl: verifyUrl,
+    });
 
     return res.status(201).json({
       message: "User registered successfully",
@@ -121,7 +124,7 @@ export const loginHandler = async (req: Request, res: Response) => {
         .status(400)
         .json({ message: "Invalid data!", error: result.error.flatten });
     }
-    const { email, password } = result.data;
+    const { email, password, twoFactorCode } = result.data;
     const normalizedEmail = email.trim().toLowerCase();
     const user = await prisma.user.findUnique({
       where: { email: normalizedEmail },
@@ -136,6 +139,17 @@ export const loginHandler = async (req: Request, res: Response) => {
 
     if (!user.isEmailVerified) {
       return res.status(403).json({ message: "Please verify your email!" });
+    }
+
+    if (user.twoFactorEnabled) {
+      if (!twoFactorCode || typeof twoFactorCode !== "string") {
+        return res.status(400).json({ message: "Two factor code is required" });
+      }
+      if (!user.twoFactorSecret) {
+        return res
+          .status(400)
+          .json({ message: "Two factor misconfigured for this account" });
+      }
     }
 
     const accessToken = createAccessToken(
@@ -256,7 +270,7 @@ export async function logoutHandler(req: Request, res: Response) {
       path: "/",
     });
 
-    return res.status(200).json({
+    return res.status(500).json({
       message: "Logout successful",
     });
   }
@@ -351,6 +365,90 @@ export async function resetPasswordHandler(req: Request, res: Response) {
     });
     res.clearCookie("refreshToken");
     return res.status(200).json({ message: "Password reset successful" });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}
+
+export async function setup2FAHandler(req: Request, res: Response) {
+  try {
+    const authReq = req as any;
+    const authUser = authReq.user;
+    if (!authUser) {
+      return res.status(401).json({ message: "Not Authenticated" });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: Number(authUser.id) },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    const secret = generateSecret();
+    const issuer = "Node Auth";
+    const otpAuthUrl = generateURI({
+      secret: secret,
+      label: user.email,
+      issuer,
+    });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        twoFactorSecret: secret,
+        twoFactorEnabled: false,
+      },
+    });
+    return res.json({
+      message: "2FA code sent successfully",
+      otpAuthUrl,
+      secret,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}
+
+export async function verify2FAHandler(req: Request, res: Response) {
+  try {
+    const { code } = req.body as { code?: string };
+    const authReq = req as any;
+    const authUser = authReq.user;
+    if (!authUser) {
+      return res.status(401).json({ message: "Not Authenticated" });
+    }
+
+    if (!code) {
+      return res.status(400).json({ message: "Code is required" });
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: Number(authUser.id) },
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!user.twoFactorSecret) {
+      return res.status(400).json({ message: "2FA not enabled" });
+    }
+    const isCodeValid = verify({ secret: user.twoFactorSecret, token: code });
+
+    if (!isCodeValid) {
+      return res.status(400).json({ message: "Invalid 2FA code" });
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        twoFactorEnabled: true,
+      },
+    });
+    return res.status(200).json({
+      message: "2FA code verified successfully",
+      twoFactorEnabled: true,
+    });
   } catch (error) {
     console.log(error);
     return res.status(500).json({ message: "Internal server error" });
